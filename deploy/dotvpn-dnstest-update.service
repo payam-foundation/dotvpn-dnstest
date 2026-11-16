@@ -1,0 +1,12 @@
+[Unit]
+Description=Update the dotvpn DNS leak test server
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+# Edit to the directory where this repository is checked out.
+WorkingDirectory=/opt/dotvpn-dnstest
+ExecStart=/opt/dotvpn-dnstest/deploy/update.sh
+TimeoutStartSec=15min

@@ -1,0 +1,15 @@
+/dist/
+.last-failed
+*.test
+*.out
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+.DS_Store
+.idea/
+.vscode/
+go.work
+go.work.sum
+coverage.out

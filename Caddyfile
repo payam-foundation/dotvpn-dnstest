@@ -1,0 +1,17 @@
+# TLS for the three HTTP names. No access log: Caddy logs nothing unless a log
+# directive exists, and none is set. Caddy and CoreDNS share the host network,
+# so the plugin sees the visitor's real address from X-Forwarded-For.
+{
+	admin 127.0.0.1:2019
+}
+
+api.{$DNSTEST_ZONE}, v4.{$DNSTEST_ZONE}, v6.{$DNSTEST_ZONE} {
+	header -Server
+	@api path /r/* /ip
+	handle @api {
+		reverse_proxy 127.0.0.1:8053
+	}
+	handle {
+		respond "not found" 404
+	}
+}

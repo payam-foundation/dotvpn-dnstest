@@ -1,0 +1,18 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:best-practices"],
+  "enabledManagers": ["dockerfile", "docker-compose"],
+  "pinDigests": true,
+  "commitMessagePrefix": "build(docker):",
+  "semanticCommits": "disabled",
+  "packageRules": [
+    {
+      "matchPackageNames": ["ghcr.io/payam-foundation/dotvpn-dnstest"],
+      "enabled": false
+    },
+    {
+      "matchManagers": ["dockerfile", "docker-compose"],
+      "groupName": "container base images"
+    }
+  ]
+}

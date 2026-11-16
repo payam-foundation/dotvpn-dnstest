@@ -1,0 +1,77 @@
+# Leak test server. Copy .env.example to .env, set the values, then:
+#   docker compose up -d
+# The image tag below is bumped by release-please; third-party images are pinned
+# by digest and bumped by Renovate. deploy/update.sh applies both from main.
+# Host networking on purpose: the whole test is "which address asked", and
+# Docker's NAT can hide or rewrite the source of IPv6 queries.
+services:
+  coredns:
+    image: ghcr.io/payam-foundation/dotvpn-dnstest:v0.0.0 # x-release-please-version
+    network_mode: host
+    restart: unless-stopped
+    # Port 53 is privileged and host networking forbids the sysctl, so run as
+    # root with nothing but the bind capability. /data is root-owned, so the
+    # server can write the ASN table it downloads.
+    user: "0:0"
+    environment:
+      DNSTEST_ZONE: ${DNSTEST_ZONE:?}
+      # Empty means: find it from the host.
+      # Empty IP values mean: find the public address from the host.
+      DNSTEST_IP4: ${DNSTEST_IP4:-}
+      DNSTEST_IP6: ${DNSTEST_IP6:-}
+      # Empty means: the default, hourly. "off" stops the ASN table downloads.
+      DNSTEST_ASN_UPDATE: ${DNSTEST_ASN_UPDATE:-}
+      DNSTEST_ORIGIN: ${DNSTEST_ORIGIN:?}
+    volumes:
+      - geo:/data
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 256
+    mem_limit: 512m
+    cpus: 1
+    logging:
+      driver: local
+      options: {max-size: 1m, max-file: "2"}
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/coredns", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  caddy:
+    image: caddy:2.11-alpine@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0
+    network_mode: host
+    restart: unless-stopped
+    user: "0:0"
+    environment:
+      DNSTEST_ZONE: ${DNSTEST_ZONE:?}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    read_only: true
+    tmpfs: ["/tmp:size=8m,mode=1777"]
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 256
+    mem_limit: 256m
+    cpus: 1
+    logging:
+      driver: local
+      options: {max-size: 1m, max-file: "2"}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    depends_on:
+      coredns: {condition: service_healthy}
+
+volumes:
+  geo:
+  caddy-data:
+  caddy-config:

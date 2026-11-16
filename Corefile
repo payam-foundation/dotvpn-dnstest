@@ -1,0 +1,17 @@
+# Authoritative for one delegated zone and nothing else. Anything outside it is REFUSED.
+# Values come from the environment (see .env.example). The server finds its own public
+# addresses when DNSTEST_IP4 and DNSTEST_IP6 are empty, and downloads the ASN table itself.
+{$DNSTEST_ZONE}:53 {
+	bufsize 1232
+	cancel
+	errors
+	dnstest {
+		ip4 {$DNSTEST_IP4}
+		ip6 {$DNSTEST_IP6}
+		http 127.0.0.1:8053
+		asn /data/ip2asn.tsv
+		update {$DNSTEST_ASN_UPDATE}
+		origin {$DNSTEST_ORIGIN}
+		ttl 60s
+	}
+}
