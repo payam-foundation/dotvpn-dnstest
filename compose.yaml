@@ -6,7 +6,7 @@
 # Docker's NAT can hide or rewrite the source of IPv6 queries.
 services:
   coredns:
-    image: ghcr.io/payam-foundation/dotvpn-dnstest:v0.0.0 # x-release-please-version
+    image: ghcr.io/payam-foundation/dotvpn-dnstest:v0.1.0 # x-release-please-version
     network_mode: host
     restart: unless-stopped
     # Port 53 is privileged and host networking forbids the sysctl, so run as
