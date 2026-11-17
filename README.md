@@ -1,6 +1,6 @@
 # DotVPN DNStest
 
-DNS leak test server for the dotvpn connection check. CoreDNS with one small plugin, Caddy for HTTPS, and an hourly ASN table refresh, in Docker Compose on its own VPS.
+DNS leak test server for the dotvpn connection check. CoreDNS with one small plugin, Caddy for HTTPS, and an hourly refresh of the ASN table and city database, in Docker Compose on its own VPS.
 
 [![CI](https://github.com/payam-foundation/dotvpn-dnstest/actions/workflows/ci.yml/badge.svg)](https://github.com/payam-foundation/dotvpn-dnstest/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/payam-foundation/dotvpn-dnstest)](https://github.com/payam-foundation/dotvpn-dnstest/releases)
@@ -70,7 +70,7 @@ Resolvers that asked for a probe name under `ID` in the last 60 seconds. An unkn
 ```json
 {
   "resolvers": [
-    { "ip": "203.0.113.53", "family": "IPv4", "asn": "AS64496", "org": "Example Resolver Inc", "country": "NL" }
+    { "ip": "203.0.113.53", "family": "IPv4", "asn": "AS64496", "org": "Example Resolver Inc", "country": "NL", "region": "North Holland", "city": "Amsterdam" }
   ]
 }
 ```
@@ -80,7 +80,7 @@ Resolvers that asked for a probe name under `ID` in the last 60 seconds. An unkn
 The address of the caller. Use it on `v4.<zone>` and `v6.<zone>`.
 
 ```json
-{ "ip": "198.51.100.7", "family": "IPv4", "asn": "AS64511", "org": "Example ISP", "country": "DE" }
+{ "ip": "198.51.100.7", "family": "IPv4", "asn": "AS64511", "org": "Example ISP", "country": "DE", "region": "Hesse", "city": "Frankfurt am Main" }
 ```
 
 ### `GET /asn?ip=ADDRESS`
@@ -94,9 +94,9 @@ Plain `ok`. Not rate limited.
 ### Behaviour of all endpoints
 
 - CORS: `Access-Control-Allow-Origin` is sent only when the request `Origin` equals `DNSTEST_ORIGIN`.
-- Rate limit: per client address, a burst of 30 requests, then one request per 250 ms. Over the limit answers `429` with `Retry-After: 1`.
+- Rate limit: per client address, a burst of 300 requests, then one request per 50 ms. A VPN exit address is shared by many visitors, so the budget is wide. Over the limit answers `429` with `Retry-After: 1`, and the CORS header is still sent so the page can read it.
 - `Cache-Control: no-store` on every answer.
-- An empty `asn`, `org` or `country` means the ASN table has no entry for that address (or is not downloaded yet).
+- An empty `asn` or `org` means the ASN table has no entry for that address (or is not downloaded yet). An empty `region` or `city` means the same for the city database. `country` comes from the city database, and from the ASN table when the city database has no answer.
 
 ## Configuration
 
@@ -107,7 +107,7 @@ Environment variables, set in `.env` (see `.env.example`):
 | `DNSTEST_ZONE` | yes | Delegated zone, for example `dnstest.example.org` |
 | `DNSTEST_ORIGIN` | yes | The one site allowed to read answers, for example `https://dotvpn.org` |
 | `DNSTEST_IP4`, `DNSTEST_IP6` | no | Override the auto-detected public addresses. Must match the glue records. |
-| `DNSTEST_ASN_UPDATE` | no | ASN refresh interval (a duration of at least `1m`, default `1h`), or `off` |
+| `DNSTEST_UPDATE` | no | How often to look for a new ASN table and city database (a duration of at least `1m`, default `1h`), or `off`. The old name `DNSTEST_ASN_UPDATE` still works in `compose.yaml`. |
 
 `Corefile` options of the `dnstest` block:
 
@@ -116,7 +116,8 @@ Environment variables, set in `.env` (see `.env.example`):
 | `ip4`, `ip6` | detected | Addresses answered for names under the zone |
 | `http` | `:8053` | HTTP listen address (`127.0.0.1:8053` in `Corefile`) |
 | `asn` | `/data/ip2asn.tsv` | Path of the ASN table |
-| `update` | `1h` | Refresh interval, or `off` |
+| `geo` | `/data/dbip-city.mmdb` | Path of the city database |
+| `update` | `1h` | Refresh interval for both files, or `off` |
 | `origin` | none | CORS origin |
 | `ttl` | `1m` | How long a recorded resolver is kept |
 
@@ -169,6 +170,7 @@ docker compose up -d
 - Third-party images (Caddy, distroless, Go) are pinned by digest. Renovate opens PRs to bump the digests; Dependabot handles Go modules and GitHub Actions.
 - `deploy/update.sh` fast-forwards to `origin/main`, pulls, restarts, then probes: the in-container health check (DNS over UDP and TCP plus HTTP), a `dig` of a probe name, and an HTTPS request. If the probe fails it returns to the previous commit and image tags, remembers the bad commit in `.last-failed` so it is not retried, and exits non-zero.
 - The ASN table comes from [iptoasn.com](https://iptoasn.com) (public domain). The server fetches it at start and then hourly with `If-Modified-Since`, rejects anything that does not parse, and swaps it in atomically. A failed round keeps the old table and retries after five minutes. If the table is missing the test still works, only the ASN fields are empty.
+- The city database is [DB-IP](https://db-ip.com) "IP to City Lite" (CC BY 4.0, so the web page credits DB-IP). It is published monthly as `dbip-city-lite-YYYY-MM.mmdb.gz`. The same loop as the ASN table fetches this month's file, falls back to last month's until the new one is published, rejects anything that is not a city database, and swaps it in atomically. The file is memory-mapped, so it costs little RAM. If it is missing the test still works, only `region` and `city` are empty.
 
 Install the timer:
 

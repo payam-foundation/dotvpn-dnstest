@@ -11,7 +11,7 @@ services:
     restart: unless-stopped
     # Port 53 is privileged and host networking forbids the sysctl, so run as
     # root with nothing but the bind capability. /data is root-owned, so the
-    # server can write the ASN table it downloads.
+    # server can write the ASN table and city database it downloads.
     user: "0:0"
     environment:
       DNSTEST_ZONE: ${DNSTEST_ZONE:?}
@@ -19,8 +19,9 @@ services:
       # Empty IP values mean: find the public address from the host.
       DNSTEST_IP4: ${DNSTEST_IP4:-}
       DNSTEST_IP6: ${DNSTEST_IP6:-}
-      # Empty means: the default, hourly. "off" stops the ASN table downloads.
-      DNSTEST_ASN_UPDATE: ${DNSTEST_ASN_UPDATE:-}
+      # Empty means: the default, hourly. "off" stops the ASN table and city database downloads.
+      # DNSTEST_ASN_UPDATE is the old name and still works.
+      DNSTEST_UPDATE: ${DNSTEST_UPDATE:-${DNSTEST_ASN_UPDATE:-}}
       DNSTEST_ORIGIN: ${DNSTEST_ORIGIN:?}
     volumes:
       - geo:/data

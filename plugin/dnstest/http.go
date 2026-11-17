@@ -9,12 +9,15 @@ import (
 	"time"
 
 	"github.com/payam-foundation/dotvpn-dnstest/internal/asn"
+	"github.com/payam-foundation/dotvpn-dnstest/internal/geo"
 )
 
 // Per client address: a burst of rateBurst requests, then rateEvery between requests.
+// One page check costs 4 to 8 requests, and a VPN exit address is shared by many
+// visitors, so the budget must cover a crowd behind one address.
 const (
-	rateBurst   = 30
-	rateEvery   = 250 * time.Millisecond
+	rateBurst   = 300
+	rateEvery   = 50 * time.Millisecond
 	maxLimiters = 100_000
 )
 
@@ -24,11 +27,20 @@ type network struct {
 	ASN     string `json:"asn"`
 	Org     string `json:"org"`
 	Country string `json:"country"`
+	Region  string `json:"region"`
+	City    string `json:"city"`
 }
 
-func describe(src *asn.Source, ip netip.Addr) network {
-	info := src.Lookup(ip)
-	n := network{IP: ip.String(), ASN: info.AS(), Org: info.Org, Country: info.Country}
+// describe joins the network (ASN table) and the place (city database). The city
+// database is the better source of the country; the ASN table covers for it while
+// it is missing or does not know the address.
+func describe(networks *asn.Source, places *geo.Source, ip netip.Addr) network {
+	info := networks.Lookup(ip)
+	place := places.Lookup(ip)
+	n := network{IP: ip.String(), ASN: info.AS(), Org: info.Org, Country: info.Country, Region: place.Region, City: place.City}
+	if place.Country != "" {
+		n.Country = place.Country
+	}
 	if ip.Is4() {
 		n.Family = "IPv4"
 	} else {
@@ -117,17 +129,21 @@ func isPublic(ip netip.Addr) bool {
 }
 
 // httpHandler serves /r/{id}, /ip, /asn and /healthz. origin is the one site allowed to read the answers.
-func (h *Handler) httpHandler(src *asn.Source, origin string, lim *limiter) http.Handler {
+func (h *Handler) httpHandler(networks *asn.Source, places *geo.Source, origin string, lim *limiter) http.Handler {
 	mux := http.NewServeMux()
-	reply := func(w http.ResponseWriter, r *http.Request, body any) {
+	// cors runs before the rate limit, so a 429 is readable by the page too.
+	cors := func(w http.ResponseWriter, r *http.Request) {
 		hd := w.Header()
-		hd.Set("Content-Type", "application/json")
-		hd.Set("Cache-Control", "no-store")
-		hd.Set("X-Content-Type-Options", "nosniff")
 		hd.Add("Vary", "Origin")
 		if origin != "" && r.Header.Get("Origin") == origin {
 			hd.Set("Access-Control-Allow-Origin", origin)
 		}
+	}
+	reply := func(w http.ResponseWriter, _ *http.Request, body any) {
+		hd := w.Header()
+		hd.Set("Content-Type", "application/json")
+		hd.Set("Cache-Control", "no-store")
+		hd.Set("X-Content-Type-Options", "nosniff")
 		_ = json.NewEncoder(w).Encode(body)
 	}
 
@@ -136,7 +152,7 @@ func (h *Handler) httpHandler(src *asn.Source, origin string, lim *limiter) http
 		out := []network{}
 		if isID(id) {
 			for _, ip := range h.resolversFor(id, time.Now()) {
-				out = append(out, describe(src, ip))
+				out = append(out, describe(networks, places, ip))
 			}
 		}
 		reply(w, r, map[string]any{"resolvers": out})
@@ -147,7 +163,7 @@ func (h *Handler) httpHandler(src *asn.Source, origin string, lim *limiter) http
 			http.Error(w, "no address", http.StatusBadRequest)
 			return
 		}
-		reply(w, r, describe(src, ip))
+		reply(w, r, describe(networks, places, ip))
 	})
 	mux.HandleFunc("GET /asn", func(w http.ResponseWriter, r *http.Request) {
 		ip, err := netip.ParseAddr(strings.TrimSpace(r.URL.Query().Get("ip")))
@@ -155,7 +171,7 @@ func (h *Handler) httpHandler(src *asn.Source, origin string, lim *limiter) http
 			http.Error(w, "not a public address", http.StatusBadRequest)
 			return
 		}
-		reply(w, r, describe(src, ip.Unmap().WithZone("")))
+		reply(w, r, describe(networks, places, ip.Unmap().WithZone("")))
 	})
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
@@ -163,6 +179,7 @@ func (h *Handler) httpHandler(src *asn.Source, origin string, lim *limiter) http
 	})
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cors(w, r)
 		if r.URL.Path != "/healthz" {
 			if ip, ok := clientAddr(r); !ok || !lim.allow(ip, time.Now()) {
 				w.Header().Set("Retry-After", "1")

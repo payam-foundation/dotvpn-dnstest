@@ -18,6 +18,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/payam-foundation/dotvpn-dnstest/internal/feed"
 )
 
 // Info describes the network of an address. The zero value means unknown.
@@ -178,18 +180,24 @@ func (s *Source) Refresh() error {
 	return nil
 }
 
-// Watch calls Refresh every interval until stop closes. Errors go to onErr.
-func (s *Source) Watch(stop <-chan struct{}, interval time.Duration, onErr func(error)) {
-	tick := time.NewTicker(interval)
-	defer tick.Stop()
-	for {
-		select {
-		case <-stop:
-			return
-		case <-tick.C:
-			if err := s.Refresh(); err != nil && onErr != nil {
-				onErr(err)
+// DefaultURL is the combined IPv4 and IPv6 table, public domain.
+const DefaultURL = "https://iptoasn.com/data/ip2asn-combined.tsv.gz"
+
+// Feed keeps the file current from DefaultURL.
+func (s *Source) Feed() feed.Feed {
+	return feed.Feed{
+		Name: "ASN table",
+		Path: s.path,
+		URLs: func(time.Time) []string { return []string{DefaultURL} },
+		Check: func(path string) error {
+			f, err := os.Open(path)
+			if err != nil {
+				return err
 			}
-		}
+			defer f.Close()
+			_, err = Parse(f)
+			return err
+		},
+		Load: s.Refresh,
 	}
 }

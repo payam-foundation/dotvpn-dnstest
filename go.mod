@@ -6,6 +6,7 @@ require (
 	github.com/coredns/caddy v1.1.4
 	github.com/coredns/coredns v1.15.0
 	github.com/miekg/dns v1.1.73
+	github.com/oschwald/maxminddb-golang/v2 v2.9.1
 )
 
 require (
