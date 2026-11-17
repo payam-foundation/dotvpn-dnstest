@@ -233,6 +233,26 @@ func TestHTTP(t *testing.T) {
 	if me.IP != "2001:db8::1" || me.Family != "IPv6" || me.ASN != "" {
 		t.Errorf("ipv6: %+v", me)
 	}
+
+	// /asn names the network of a public address and refuses the rest.
+	rec = get("/asn?ip=203.0.113.9", "172.18.0.5:4000", "https://dotvpn.org", "")
+	if err := json.Unmarshal(rec.Body.Bytes(), &me); err != nil {
+		t.Fatal(err)
+	}
+	if rec.Code != 200 || me.IP != "203.0.113.9" || me.ASN != "AS64501" || me.Country != "US" {
+		t.Errorf("asn: %d %+v", rec.Code, me)
+	}
+	if rec.Header().Get("Access-Control-Allow-Origin") != "https://dotvpn.org" {
+		t.Error("asn must allow the site origin")
+	}
+	if rec := get("/asn?ip=203.0.113.9", "172.18.0.5:4000", "https://evil.example", ""); rec.Header().Get("Access-Control-Allow-Origin") != "" {
+		t.Error("asn: foreign origin must not be allowed")
+	}
+	for _, bad := range []string{"", "nope", "10.0.0.1", "127.0.0.1", "::1", "100.64.0.1", "169.254.1.1", "fe80::1", "fd00::1", "example.com"} {
+		if rec := get("/asn?ip="+bad, "172.18.0.5:4000", "", ""); rec.Code != http.StatusBadRequest {
+			t.Errorf("asn %q: code %d", bad, rec.Code)
+		}
+	}
 }
 
 func TestRateLimit(t *testing.T) {
@@ -252,6 +272,13 @@ func TestRateLimit(t *testing.T) {
 	}
 	if !l.allow(netip.MustParseAddr("198.51.100.2"), now) {
 		t.Fatal("limits must be per address")
+	}
+	v6 := netip.MustParseAddr("2001:db8::1")
+	for range rateBurst {
+		l.allow(v6, now)
+	}
+	if l.allow(netip.MustParseAddr("2001:db8::ffff"), now) {
+		t.Fatal("one IPv6 /64 must share a limit")
 	}
 	l.sweep(now.Add(time.Hour))
 	if len(l.seen) != 0 {

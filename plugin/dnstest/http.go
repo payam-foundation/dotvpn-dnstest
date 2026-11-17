@@ -48,6 +48,12 @@ type bucket struct {
 }
 
 func (l *limiter) allow(ip netip.Addr, now time.Time) bool {
+	// An IPv6 subscriber owns a whole /64; keying on the full address would let
+	// one of them fill the table and lock everyone else out.
+	if ip.Is6() {
+		p, _ := ip.Prefix(64) // 64 is valid for IPv6, so no error
+		ip = p.Addr()
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.seen == nil {
@@ -103,7 +109,14 @@ func clientAddr(r *http.Request) (netip.Addr, bool) {
 	return remote.WithZone(""), true
 }
 
-// httpHandler serves /r/{id}, /ip and /healthz. origin is the one site allowed to read the answers.
+var cgnat = netip.MustParsePrefix("100.64.0.0/10")
+
+// isPublic is false for addresses that say nothing about a network: private, loopback, link-local, shared (carrier-grade NAT).
+func isPublic(ip netip.Addr) bool {
+	return ip.IsGlobalUnicast() && !ip.IsPrivate() && !ip.IsLinkLocalUnicast() && !cgnat.Contains(ip)
+}
+
+// httpHandler serves /r/{id}, /ip, /asn and /healthz. origin is the one site allowed to read the answers.
 func (h *Handler) httpHandler(src *asn.Source, origin string, lim *limiter) http.Handler {
 	mux := http.NewServeMux()
 	reply := func(w http.ResponseWriter, r *http.Request, body any) {
@@ -135,6 +148,14 @@ func (h *Handler) httpHandler(src *asn.Source, origin string, lim *limiter) http
 			return
 		}
 		reply(w, r, describe(src, ip))
+	})
+	mux.HandleFunc("GET /asn", func(w http.ResponseWriter, r *http.Request) {
+		ip, err := netip.ParseAddr(strings.TrimSpace(r.URL.Query().Get("ip")))
+		if err != nil || !isPublic(ip.Unmap().WithZone("")) {
+			http.Error(w, "not a public address", http.StatusBadRequest)
+			return
+		}
+		reply(w, r, describe(src, ip.Unmap().WithZone("")))
 	})
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
