@@ -83,6 +83,10 @@ The address of the caller. Use it on `v4.<zone>` and `v6.<zone>`.
 { "ip": "198.51.100.7", "family": "IPv4", "asn": "AS64511", "org": "Example ISP", "country": "DE" }
 ```
 
+### `GET /asn?ip=ADDRESS`
+
+The network of a public address, for example one WebRTC revealed. Same body as `/ip`. A missing, malformed, private, loopback, link-local or shared (carrier-grade NAT) address gives `400`.
+
 ### `GET /healthz`
 
 Plain `ok`. Not rate limited.

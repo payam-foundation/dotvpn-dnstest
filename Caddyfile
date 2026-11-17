@@ -7,7 +7,7 @@
 
 api.{$DNSTEST_ZONE}, v4.{$DNSTEST_ZONE}, v6.{$DNSTEST_ZONE} {
 	header -Server
-	@api path /r/* /ip
+	@api path /r/* /ip /asn
 	handle @api {
 		reverse_proxy 127.0.0.1:8053
 	}
