@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/payam-foundation/dotvpn-dnstest/compare/v0.2.0...v0.3.0) (2026-11-17)
+
+
+### Features
+
+* **geo:** add city and region from DB-IP Lite City ([#4](https://github.com/payam-foundation/dotvpn-dnstest/issues/4)) ([ce6e8e8](https://github.com/payam-foundation/dotvpn-dnstest/commit/ce6e8e838239e536b664e823bbec12e44b8d739e))
+
 ## [0.2.0](https://github.com/payam-foundation/dotvpn-dnstest/compare/v0.1.0...v0.2.0) (2026-11-17)
 
 
