@@ -17,6 +17,7 @@ import (
 	"github.com/coredns/coredns/plugin/test"
 	"github.com/miekg/dns"
 	"github.com/payam-foundation/dotvpn-dnstest/internal/asn"
+	"github.com/payam-foundation/dotvpn-dnstest/internal/geo"
 )
 
 const (
@@ -176,7 +177,8 @@ func TestHTTP(t *testing.T) {
 	}
 	h := newHandler(zone, ip4, ip6, time.Minute)
 	h.record(id, netip.MustParseAddr("198.51.100.7"), time.Now())
-	srv := h.httpHandler(src, "https://dotvpn.org", &limiter{})
+	// No city database is loaded: the country falls back to the ASN table and the place stays empty.
+	srv := h.httpHandler(src, geo.NewSource(filepath.Join(t.TempDir(), "none.mmdb")), "https://dotvpn.org", &limiter{})
 
 	get := func(target, remote, origin, fwd string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodGet, target, nil)
@@ -197,7 +199,7 @@ func TestHTTP(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	if len(body.Resolvers) != 1 || body.Resolvers[0].ASN != "AS64500" || body.Resolvers[0].Country != "DE" || body.Resolvers[0].Org != "Example Resolver GmbH" {
+	if len(body.Resolvers) != 1 || body.Resolvers[0].ASN != "AS64500" || body.Resolvers[0].Country != "DE" || body.Resolvers[0].Org != "Example Resolver GmbH" || body.Resolvers[0].City != "" {
 		t.Fatalf("resolvers = %+v", body.Resolvers)
 	}
 	if rec.Header().Get("Access-Control-Allow-Origin") != "https://dotvpn.org" || rec.Header().Get("Cache-Control") != "no-store" {
@@ -252,6 +254,23 @@ func TestHTTP(t *testing.T) {
 		if rec := get("/asn?ip="+bad, "172.18.0.5:4000", "", ""); rec.Code != http.StatusBadRequest {
 			t.Errorf("asn %q: code %d", bad, rec.Code)
 		}
+	}
+}
+
+func TestRateLimitedReplyKeepsCORS(t *testing.T) {
+	src := asn.NewSource(filepath.Join(t.TempDir(), "none.tsv"))
+	lim := &limiter{}
+	srv := newHandler(zone, ip4, ip6, time.Minute).httpHandler(src, geo.NewSource(""), "https://dotvpn.org", lim)
+	var last *httptest.ResponseRecorder
+	for range rateBurst + 1 {
+		req := httptest.NewRequest(http.MethodGet, "/ip", nil)
+		req.RemoteAddr = "198.51.100.1:4000"
+		req.Header.Set("Origin", "https://dotvpn.org")
+		last = httptest.NewRecorder()
+		srv.ServeHTTP(last, req)
+	}
+	if last.Code != http.StatusTooManyRequests || last.Header().Get("Access-Control-Allow-Origin") != "https://dotvpn.org" {
+		t.Fatalf("429 reply: %d %v", last.Code, last.Header())
 	}
 }
 

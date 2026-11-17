@@ -26,7 +26,7 @@ chmod 644 "$data/ip2asn.tsv"
 
 docker run -d --name "$name" --read-only --cap-drop ALL \
   --sysctl net.ipv4.ip_unprivileged_port_start=53 \
-  -e DNSTEST_ZONE="$zone" -e DNSTEST_IP4=203.0.113.10 -e DNSTEST_ASN_UPDATE=off -e DNSTEST_ORIGIN=https://example.org \
+  -e DNSTEST_ZONE="$zone" -e DNSTEST_IP4=203.0.113.10 -e DNSTEST_UPDATE=off -e DNSTEST_ORIGIN=https://example.org \
   -v "$data:/data:ro" "$image" >/dev/null
 
 probe() { docker run --rm --network "container:$name" "$client" sh -c "apk add -q --no-cache bind-tools curl >/dev/null && $*"; }

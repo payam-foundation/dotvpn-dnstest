@@ -14,6 +14,8 @@ import (
 	"github.com/coredns/coredns/plugin"
 	clog "github.com/coredns/coredns/plugin/pkg/log"
 	"github.com/payam-foundation/dotvpn-dnstest/internal/asn"
+	"github.com/payam-foundation/dotvpn-dnstest/internal/feed"
+	"github.com/payam-foundation/dotvpn-dnstest/internal/geo"
 	"github.com/payam-foundation/dotvpn-dnstest/internal/publicip"
 )
 
@@ -28,7 +30,8 @@ type options struct {
 	ip4, ip6 netip.Addr
 	http     string
 	asnPath  string
-	update   time.Duration // how often to look for a new ASN table, 0 = never
+	geoPath  string
+	update   time.Duration // how often to look for a new ASN table and city database, 0 = never
 	origin   string
 	ttl      time.Duration
 }
@@ -40,12 +43,13 @@ type options struct {
 //	    ip6 2001:db8::10    # optional: found by itself when unset
 //	    http :8053
 //	    asn /data/ip2asn.tsv
+//	    geo /data/dbip-city.mmdb
 //	    origin https://dotvpn.org
-//	    update 1h           # how often to fetch a new ASN table; "off" to never
+//	    update 1h           # how often to fetch new ASN and city data; "off" to never
 //	    ttl 60s
 //	}
 func parse(c *caddy.Controller) (options, error) {
-	o := options{http: ":8053", asnPath: "/data/ip2asn.tsv", update: time.Hour, ttl: time.Minute}
+	o := options{http: ":8053", asnPath: "/data/ip2asn.tsv", geoPath: "/data/dbip-city.mmdb", update: time.Hour, ttl: time.Minute}
 	c.Next() // dnstest
 	for c.NextBlock() {
 		key := c.Val()
@@ -73,6 +77,8 @@ func parse(c *caddy.Controller) (options, error) {
 			o.http = args[0]
 		case "asn":
 			o.asnPath = args[0]
+		case "geo":
+			o.geoPath = args[0]
 		case "update":
 			if args[0] == "off" {
 				o.update = 0
@@ -140,9 +146,10 @@ func setup(c *caddy.Controller) error {
 	}
 	h := newHandler(dnsserver.GetConfig(c).Zone, o.ip4, o.ip6, o.ttl)
 	src := asn.NewSource(o.asnPath)
+	places := geo.NewSource(o.geoPath)
 	lim := &limiter{}
 	srv := &http.Server{
-		Handler:           h.httpHandler(src, o.origin, lim),
+		Handler:           h.httpHandler(src, places, o.origin, lim),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,
@@ -153,11 +160,16 @@ func setup(c *caddy.Controller) error {
 	ctx, stop := context.WithCancel(context.Background())
 
 	c.OnStartup(func() error {
+		// A missing file is normal on first start: the download is under way, and Keep loads it as soon as it lands.
 		if err := src.Refresh(); err != nil {
-			// The first download is under way; Keep loads it as soon as it lands.
 			log.Warningf("no ASN table yet: %v", err)
 		} else {
 			log.Infof("ASN table loaded, %d ranges", src.Len())
+		}
+		if err := places.Refresh(); err != nil {
+			log.Warningf("no city database yet: %v", err)
+		} else {
+			log.Infof("city database loaded")
 		}
 		ln, err := net.Listen("tcp", o.http)
 		if err != nil {
@@ -168,10 +180,13 @@ func setup(c *caddy.Controller) error {
 				log.Errorf("http: %v", err)
 			}
 		}()
-		if o.update > 0 {
-			go src.Keep(ctx, &http.Client{Timeout: 3 * time.Minute}, asn.DefaultURL, o.update, log.Infof)
-		} else {
-			go src.Watch(ctx.Done(), 30*time.Second, func(err error) { log.Warningf("ASN table: %v", err) })
+		client := &http.Client{Timeout: 3 * time.Minute}
+		for _, f := range []feed.Feed{src.Feed(), places.Feed()} {
+			if o.update > 0 {
+				go f.Keep(ctx, client, o.update, log.Infof)
+			} else {
+				go f.Watch(ctx, 30*time.Second, log.Warningf)
+			}
 		}
 		go func() {
 			tick := time.NewTicker(10 * time.Second)
