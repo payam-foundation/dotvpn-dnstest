@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/payam-foundation/dotvpn-dnstest/compare/v0.1.0...v0.2.0) (2026-11-17)
+
+
+### Features
+
+* add /asn lookup and rate limit IPv6 per /64 ([#2](https://github.com/payam-foundation/dotvpn-dnstest/issues/2)) ([ff07031](https://github.com/payam-foundation/dotvpn-dnstest/commit/ff0703138330b8bba031ed2a8cf91262f069fe3f))
+
 ## 0.1.0 (2026-11-16)
 
 
